@@ -1,0 +1,221 @@
+\documentclass{beamer}
+
+\usepackage[latin1]{inputenc}
+\usetheme{Warsaw}
+
+\title[Montreal Embedded]{Comment manipuler une mémoire flash NAND raw sous Linux}
+\author{Sebastien Bourdelin}
+\institute{sebastien.bourdelin@savoirfairelinux.com}
+\date{04 decembre 2013}
+
+\setcounter{tocdepth}{3}
+
+\begin{document}
+
+
+% -----------------------------------------------------------------------
+\begin{frame}
+\titlepage
+\end{frame}
+% -----------------------------------------------------------------------
+
+
+% -----------------------------------------------------------------------
+\begin{frame}{Sommaire}
+  \small \tableofcontents
+\end{frame} 
+% -----------------------------------------------------------------------
+
+
+% -----------------------------------------------------------------------
+\section{Introduction}
+\begin{frame}
+\begin{itemize}
+	\item Un peu sur moi
+	\item Pourquoi ce sujet ?
+\end{itemize}
+\end{frame}
+% -----------------------------------------------------------------------
+
+
+% -----------------------------------------------------------------------
+\section{une NAND c'est quoi}
+\subsection{Les particularités}
+\begin{frame}{Les particularités}
+\begin{columns}
+	\begin{column}{0.6\textwidth}
+		\begin{itemize}
+			\item Pas d'accès aléatoire (Accès par blocs)
+			\item I/O Multiplexées (1 seul bus pour données et addresses)
+			\item Ne peut être adressé directement par le CPU
+			\item Principalement utilisée comme périphérique de stockage
+		\end{itemize}
+	\end{column}
+	\begin{column}{0.4\textwidth}
+		\includegraphics[scale=0.35]{../pics/schema_bare_nand.png}
+	\end{column}
+\end{columns}
+\end{frame}
+
+\subsection{Les problèmes}
+\begin{frame}{Les problèmes}
+\begin{itemize}
+	\item Instabilité
+	\begin{itemize}
+		\item Bitflip corruption peuvent se produire
+		\item Nécessite un code de correction d'erreur (ECC)
+	\end{itemize}
+	\item Mauvais Blocs 
+	\begin{itemize}
+		\item mauvais blocs à la livraison
+		\item un bloc peut devenir mauvais (erreur de lecture/écriture)
+		\item Nécessite de savoir quand un bloc est mauvais
+	\end{itemize}
+	\item Usure relativement rapide
+	\begin{itemize}
+		\item Une cellule-mémoire a un cycle de vie entre 10 000 et 100 000 écritures
+		\item Nécessite de distribuer uniformément le nombre d'écriture / lecture sur toute la flash (Wear leveling)
+	\end{itemize}
+\end{itemize}
+\end{frame}
+
+\subsection{Son organisation}
+\begin{frame}{Son organisation}
+\begin{columns}
+	\begin{column}{0.6\textwidth}
+		\begin{itemize}
+			\item Bloc : aussi appelé \textit{eraseblock}, c'est l'unité manipulable
+			\item Page : sous-ensemble d'un bloc, contenant des données et ECC associé
+			\item OOB  : Mémoire supplémentaire pour chaque page, contenant des metas-informations
+		\end{itemize}
+	\end{column}
+	
+	\begin{column}{0.4\textwidth}
+		\includegraphics[scale=0.35]{../pics/schena_nand_organisation.png}
+	\end{column}
+\end{columns}
+\end{frame}
+
+\subsection{La OOB}
+\begin{frame}{La OOB}
+\begin{itemize}
+	\item \textit{Out of Band area} aussi appelé \textit{Spare Area}, c'est le coeur de la NAND
+	\item elle sert à stocker :
+	\begin{itemize}
+		\item Bit de correction d'erreurs
+		\item Marque de mauvais bloc présent dans la premiére page de chaque bloc
+		\item Bit réservé
+		\item Bit libre utilisé par le système de fichiers (ex: JFFS2)
+	\end{itemize}
+\end{itemize}
+\centering
+\includegraphics[scale=0.35]{../pics/oob.png}
+\end{frame}
+
+\subsection{Qui gère ces informations : La FTL}
+\begin{frame}{Qui gère ces informations : La FTL}
+FTL signifie \textit{Flash Translation Layer},\\
+c'est la partie logicielle qui gère les NAND
+\begin{columns}
+	\begin{column}{0.78\textwidth}
+	\begin{itemize}
+		\item \alert<1>{Peut venir dans un ensemble avec la NAND (ex: Clef USB, SSD,  Managed NAND...)}
+		\item \alert<2>{Peut être implémenté en software sous Linux avec le sous-système MTD et un système de fichiers compatible}
+	\end{itemize}
+	\end{column}
+	\begin{column}{0.22\textwidth}
+		\only<1>{\includegraphics[scale=0.30]{../pics/managed_nand.png}}
+		\only<2>{\includegraphics[scale=0.30]{../pics/raw_nand_ftl.png}}
+	\end{column}
+\end{columns}
+
+\end{frame}
+% -----------------------------------------------------------------------
+
+
+% -----------------------------------------------------------------------
+\section{Support des NAND sous Linux}
+
+\subsection{Le sous-système MTD}
+\begin{frame}{Le sous-sytème MTD}
+\begin{itemize}
+	\item MTD signifie Memory Technology Device
+	\item Fournis une abstraction pour l'accès aux mémoires flash
+	\item API uniforme pour différents types de flash (NOR, ECC-ed NOR, NAND, OneNand, etc) 
+\end{itemize}
+\centering
+\includegraphics[scale=0.45]{../pics/mtd.png}
+\end{frame}
+
+\subsection{l'API MTD}
+\begin{frame}{l'API MTD}
+\begin{itemize}
+	\item API kernel (struct mtd\_info) et API user-space (/dev/mtdX)
+	\item principales fonctions :
+	\begin{itemize}
+		\item Lire et écrire un bloc
+		\item Effacer un bloc
+		\item Vérifier si un bloc est bon
+		\item Marquer un bloc comme mauvais
+		\item Calculer un code correcteur d'erreurs
+	\end{itemize}
+\end{itemize}
+\end{frame}
+
+\subsection{les outils MTD}
+\begin{frame}{les outils MTD}
+\begin{columns}
+	\begin{column}{0.75\textwidth}
+		le package mtd-utils et l'importance d'utiliser des outils \textit{"MTD aware"}
+	\begin{itemize}
+		\item nanddump
+		\item nandwrite
+		\item flash\_erase
+	\end{itemize}
+	\end{column}
+	\begin{column}{0.25\textwidth}
+		\includegraphics[scale=0.25]{../pics/block_and_bad_block.png}
+	\end{column}
+\end{columns}
+\end{frame}
+
+\subsection{Limitation de MTD}
+\begin{frame}{Limitation de MTD}
+\begin{itemize}
+	\item MTD ne cache pas les mauvais blocs
+	\item MTD ne fais pas de wear leveling
+\end{itemize}
+C'est le rôle du système de fichiers !
+\end{frame}
+
+\subsection{système de fichiers pour les NAND}
+\begin{frame}{système de fichiers pour les NAND}
+\begin{itemize}
+	\item JFFS2 : amélioration de JFFS pour supporter les NAND
+	\item YAFFS : plus rapide que JFFS2 mais pas de compression
+	\item UBIFS : remplaçant de JFFS2, basé sur UBI
+	\item etc...
+\end{itemize}
+\end{frame}
+% -----------------------------------------------------------------------
+
+
+% -----------------------------------------------------------------------
+\section{Conclusion}
+
+\subsection{Utiliser les outils adaptés}
+\begin{frame}{Utiliser les outils adaptés}
+\begin{itemize}
+	\item pas de \textit{dd}, \textit{hexdump}, etc.. quand on travaille au niveau MTD !
+	\item pas de système de fichiers qui ne soit pas NAND compatible !
+\end{itemize}
+\end{frame}
+
+\subsection{Questions ?}
+\begin{frame}{Questions ?}
+	Merci pour votre attention\\
+	Des questions ?
+\end{frame}
+% -----------------------------------------------------------------------
+
+\end{document}
